@@ -6,15 +6,31 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 1000)
 pd.set_option('display.colheader_justify', 'center')
 
-def scanner_detallado():
-    portafolio = ['MSFT', 'AAPL', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'META']
+def AccionesEmpresa():
+    portafolio = ['MSFT', 'AAPL', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'META', 'NFLX', 'INTC', 'AMD', 'KO']
+    
+    # Mapeo de tickers a nombres de empresas
+    nombres_empresas = {
+        'MSFT': 'Microsoft',
+        'AAPL': 'Apple',
+        'TSLA': 'Tesla',
+        'AMZN': 'Amazon',
+        'GOOGL': 'Google',
+        'NVDA': 'NVIDIA',
+        'META': 'Meta',
+        'NFLX': 'Netflix',
+        'INTC': 'Intel',
+        'AMD': 'AMD',
+        'KO': 'Coca-Cola'
+    }
     
     print(f"INICIANDO ANÁLISIS DETALLADO (Lógica RSI paso a paso)\n")
 
+    vender = []
+    comprar = []
     for ticker in portafolio:
         print("=" * 100)
-        print(f" ANALIZANDO: {ticker} ")
-        print("=" * 100)
+        print(f" ANALIZANDO: {ticker} - {nombres_empresas[ticker]} ")
         
         try:
             # 1. Descargar datos
@@ -72,13 +88,18 @@ def scanner_detallado():
             # Diagnóstico final
             ultimo_rsi = datos['RSI'].iloc[-1]
             estado = "NEUTRAL"
-            if ultimo_rsi < 30: estado = "COMPRA (Sobrevendido)"
-            elif ultimo_rsi > 70: estado = "VENTA (Sobrecomprado)"
-            
-            print(f"\n---> CONCLUSIÓN PARA {ticker}: RSI actual es {ultimo_rsi:.2f} ({estado})\n\n")
-
+            if ultimo_rsi < 30: 
+                estado = "COMPRA (Sobrevendido)"
+                comprar.append(f"{nombres_empresas[ticker]}")
+            elif ultimo_rsi > 70: 
+                estado = "VENTA (Sobrecomprado)"
+                vender.append(f"{nombres_empresas[ticker]}")
+            print(f"\n---> CONCLUSIÓN PARA {nombres_empresas[ticker]}: RSI actual es {ultimo_rsi:.2f} ({estado})\n\n")
         except Exception as e:
             print(f"Error en {ticker}: {e}")
+        print(f"\n Resumen del analisis: ")
+        print(f"  Comprar: {comprar}")
+        print(f"  Vender: {vender}\n")
 
 if __name__ == "__main__":
-    scanner_detallado()
+    AccionesEmpresa()
