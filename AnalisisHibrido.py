@@ -115,7 +115,8 @@ def scanner_profundo():
     for ticker in portafolio:
         try:
             # Descarga extendida a 2 años para poder calcular la SMA_200 correctamente
-            datos = yf.download(ticker, period='2y', interval='1d', progress=False) #Aquí esta el periodo
+            #Aquí esta el periodo
+            datos = yf.download(ticker, period='2y', interval='1d', progress=False, threads=True) 
             
             # Corrección Bug MultiIndex
             if isinstance(datos.columns, pd.MultiIndex):
