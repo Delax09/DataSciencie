@@ -90,11 +90,24 @@ def interpretar_senales(row, prev_row):
         else:
             diagnostico = "REBOTE (Riesgoso / Contra-tendencia)"
             prioridad = 2
-
     return diagnostico, prioridad
 
 def scanner_profundo():
     portafolio = ['MSFT', 'AAPL', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'META', 'NFLX', 'INTC', 'AMD', 'KO']
+    nombres_empresas = {
+        'MSFT': 'Microsoft',
+        'AAPL': 'Apple',
+        'TSLA': 'Tesla',
+        'AMZN': 'Amazon',
+        'GOOGL': 'Google',
+        'NVDA': 'NVIDIA',
+        'META': 'Meta',
+        'NFLX': 'Netflix',
+        'INTC': 'Intel',
+        'AMD': 'AMD',
+        'KO': 'Coca-Cola'
+    }
+    
     informe = []
     
     print(f"INICIANDO ANÁLISIS PROFUNDO \n")
@@ -102,7 +115,7 @@ def scanner_profundo():
     for ticker in portafolio:
         try:
             # Descarga extendida a 2 años para poder calcular la SMA_200 correctamente
-            datos = yf.download(ticker, period='2y', interval='1d', progress=False)
+            datos = yf.download(ticker, period='2y', interval='1d', progress=False) #Aquí esta el periodo
             
             # Corrección Bug MultiIndex
             if isinstance(datos.columns, pd.MultiIndex):
@@ -126,12 +139,12 @@ def scanner_profundo():
             pe_ratio, profit_margin = "---", "---"
             
             if diagnostico != "NEUTRAL":
-                print(f"🔎 Profundizando en {ticker} ({diagnostico})...")
+                print(f"Profundizando en {nombres_empresas[ticker]} ({diagnostico})...")
                 pe_ratio, profit_margin = obtener_fundamentales(ticker)
 
             # 5. Guardar
             informe.append({
-                'Ticker': ticker,
+                'Ticker': nombres_empresas[ticker],
                 'Precio': round(hoy['Close'], 2),
                 'RSI': round(hoy['RSI'], 2),
                 'Tendencia': 'Alcista 📈' if hoy['Close'] > hoy['SMA_200'] else 'Bajista 📉',
