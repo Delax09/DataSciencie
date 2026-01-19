@@ -7,7 +7,7 @@ pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 1000)
 pd.set_option('display.colheader_justify', 'center')
 
-def calcular_tecnicos(datos):
+def CalcularTecnicos(datos):
     """
     Calcula RSI, Línea de Señal y Tendencia (SMA 200).
     Devuelve el DataFrame enriquecido.
@@ -31,7 +31,7 @@ def calcular_tecnicos(datos):
     
     return datos
 
-def obtener_fundamentales(ticker):
+def ObtenerFundamentales(ticker):
     """
     Descarga P/E y Margen solo cuando es necesario.
     """
@@ -49,7 +49,7 @@ def obtener_fundamentales(ticker):
     except:
         return "Error", "Error"
 
-def interpretar_senales(row, prev_row):
+def InterpretarSenales(row, prev_row):
     """
     Aplica la lógica avanzada para determinar el diagnóstico.
     row: Datos de hoy
@@ -92,7 +92,7 @@ def interpretar_senales(row, prev_row):
             prioridad = 2
     return diagnostico, prioridad
 
-def scanner_profundo():
+def ScannerProfundo():
     portafolio = ['MSFT', 'AAPL', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'META', 'NFLX', 'INTC', 'AMD', 'KO']
     nombres_empresas = {
         'MSFT': 'Microsoft',
@@ -127,21 +127,21 @@ def scanner_profundo():
                 continue
 
             # 1. Calcular Indicadores
-            datos = calcular_tecnicos(datos)
+            datos = CalcularTecnicos(datos)
             
             # 2. Obtener últimas 2 filas (Hoy y Ayer) para comparar
             hoy = datos.iloc[-1]
             ayer = datos.iloc[-2]
             
             # 3. Interpretar Señal
-            diagnostico, prioridad = interpretar_senales(hoy, ayer)
+            diagnostico, prioridad = InterpretarSenales(hoy, ayer)
             
             # 4. Si hay señal interesante, buscar fundamentales
             pe_ratio, profit_margin = "---", "---"
             
             if diagnostico != "NEUTRAL":
                 print(f"Profundizando en {nombres_empresas[ticker]} ({diagnostico})...")
-                pe_ratio, profit_margin = obtener_fundamentales(ticker)
+                pe_ratio, profit_margin = ObtenerFundamentales(ticker)
 
             # 5. Guardar
             informe.append({
@@ -180,4 +180,4 @@ def scanner_profundo():
     # df.to_csv(f"Reporte_Profundo_{datetime.now().strftime('%Y-%m-%d')}.csv", index=False)
 
 if __name__ == "__main__":
-    scanner_profundo()
+    ScannerProfundo()
