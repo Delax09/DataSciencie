@@ -84,15 +84,15 @@ def EntrenarPredecir(df_hist, ticker):
         model.add(Dense(25))
         model.add(Dense(1))
 
-        # Compilar con el optimizador personalizado
+        #Compilar con el optimizador personalizado
         model.compile(optimizer=optimizador_personalizado, loss='mean_squared_error')
         
-        # Entrenar con Early Stopping.
+        #Entrenar con Early Stopping.
         #A más epocas mayor precisión, pero más tiempo en ejecución
         model.fit(
             x_train, 
             y_train, 
-            batch_size=32, 
+            batch_size=64, 
             epochs=50, 
             callbacks=[parada_temprana],
             verbose=0
