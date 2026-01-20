@@ -1,14 +1,17 @@
 import numpy as np
 import pandas as pd
 import yfinance as yf
+import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Dropout, Input
 import os
+import warnings
 
 # 1. CONFIGURACIÓN GLOBAL
 # -----------------------------------------------------------------------------
 os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # Silenciar TensorFlow
+warnings.filterwarnings("ignore") # Silenciar advertencias de pandas/yfinance
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 1000)
 pd.set_option('display.colheader_justify', 'center')
@@ -25,18 +28,15 @@ NOMBRES = {
 
 # 2. MÓDULO DE INTELIGENCIA ARTIFICIAL (LSTM)
 # -----------------------------------------------------------------------------
-def EntrenarYPredecir(ticker):
+def EntrenarPredecir(df_hist, ticker):
     """
-    Entrena una Red Neuronal LSTM específica para el ticker y predice el % de cambio.
-    Basado en tu archivo AnalisisRedNeuronal.py
+    Recibe el DataFrame ya descargado. Entrena la LSTM y predice.
     """
     try:
-        # Descargamos 4 años para tener buen historial de entrenamiento
-        df = yf.download(ticker, period='4y', interval='1d', progress=False)
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+        # Preparamos los datos (Solo Close)
+        data = df_hist[['Close']].values
         
-        data = df.filter(['Close']).values
-        if len(data) < DIAS_MEMORIA_IA + 50: return None, None # Datos insuficientes
+        if len(data) < DIAS_MEMORIA_IA + 50: return None, None
 
         # Escalar
         scaler = MinMaxScaler(feature_range=(0, 1))
@@ -44,6 +44,7 @@ def EntrenarYPredecir(ticker):
 
         # Preparar X e y
         x_train, y_train = [], []
+        # Usamos toda la historia disponible para entrenar
         for i in range(DIAS_MEMORIA_IA, len(scaled_data)):
             x_train.append(scaled_data[i-DIAS_MEMORIA_IA:i, 0])
             y_train.append(scaled_data[i, 0])
@@ -51,7 +52,7 @@ def EntrenarYPredecir(ticker):
         x_train, y_train = np.array(x_train), np.array(y_train)
         x_train = np.reshape(x_train, (x_train.shape[0], x_train.shape[1], 1))
 
-        # Arquitectura LSTM (La misma de tu archivo)
+        # Arquitectura LSTM
         model = Sequential()
         model.add(Input(shape=(x_train.shape[1], 1)))
         model.add(LSTM(50, return_sequences=True))
@@ -61,7 +62,7 @@ def EntrenarYPredecir(ticker):
         model.add(Dense(25))
         model.add(Dense(1))
 
-        # Compilar y Entrenar (Rápido: 10 epochs)
+        # Compilar y Entrenar (Epochs=10 es un buen balance velocidad/precisión)
         model.compile(optimizer='adam', loss='mean_squared_error')
         model.fit(x_train, y_train, batch_size=32, epochs=10, verbose=0)
 
@@ -70,29 +71,33 @@ def EntrenarYPredecir(ticker):
         pred_scaled = model.predict(ultimo_fragmento, verbose=0)
         pred_final = scaler.inverse_transform(pred_scaled)[0][0]
         
-        precio_hoy = df['Close'].iloc[-1]
+        precio_hoy = df_hist['Close'].iloc[-1]
         variacion_pct = ((pred_final - precio_hoy) / precio_hoy) * 100
         
+        #Elimino el modelo para liberar memoria
+        del model 
+        tf.keras.backend.clear_session()
+
         return variacion_pct, precio_hoy
 
     except Exception as e:
+        # print(f"Error IA en {ticker}: {e}") # Descomentar para depurar
         return None, None
 
 # 3. MÓDULO TÉCNICO Y FUNDAMENTAL
 # -----------------------------------------------------------------------------
-def AnalisisTecnicoYFundamental(ticker):
+def AnalisisTecnicoYFundamental_Optimizado(df_hist, ticker):
     """
-    Calcula RSI, SMA 200, Cruces y descarga P/E.
-    Basado en tu archivo AnalisisHibrido.py
+    Usa el DataFrame ya descargado para cálculos técnicos.
+    Descarga P/E ratio aparte (esto no se puede hacer en bulk fácilmente).
     """
     try:
-        # Descarga de datos técnicos
-        df = yf.download(ticker, period='2y', interval='1d', progress=False)
-        if isinstance(df.columns, pd.MultiIndex): df.columns = df.columns.get_level_values(0)
+        if len(df_hist) < 200: return None
 
-        if len(df) < 200: return None # Necesitamos 200 días para la media móvil
+        # Copiamos para no afectar el dataframe original
+        df = df_hist.copy()
 
-        # Indicadores
+        # Indicadores Técnicos
         df['SMA_200'] = df['Close'].rolling(window=200).mean()
         
         delta = df['Close'].diff()
@@ -106,10 +111,15 @@ def AnalisisTecnicoYFundamental(ticker):
         hoy = df.iloc[-1]
         ayer = df.iloc[-2]
 
-        # Lógica de Diagnóstico Técnico (Tu código Híbrido)
+        # Lógica de Diagnóstico Técnico
         rsi = hoy['RSI']
         tendencia_alcista = hoy['Close'] > hoy['SMA_200']
-        cruce_alcista = (ayer['RSI'] < ayer['RSI_Signal']) and (hoy['RSI'] > hoy['RSI_Signal'])
+        
+        # Validación de seguridad para evitar errores si RSI_Signal es NaN
+        if pd.isna(ayer['RSI_Signal']) or pd.isna(hoy['RSI_Signal']):
+            cruce_alcista = False
+        else:
+            cruce_alcista = (ayer['RSI'] < ayer['RSI_Signal']) and (hoy['RSI'] > hoy['RSI_Signal'])
         
         diagnostico_tec = "NEUTRAL"
         
@@ -121,19 +131,21 @@ def AnalisisTecnicoYFundamental(ticker):
             elif tendencia_alcista: diagnostico_tec = "COMPRA (Tendencia)"
             else: diagnostico_tec = "REBOTE (Riesgo)"
         
-        # Fundamentales
+        # Fundamentales (Esto sigue siendo lento por naturaleza de Yahoo, pero necesario)
         try:
             info = yf.Ticker(ticker).info
-            pe = info.get('trailingPE', 999) # 999 si no hay dato
+            pe = info.get('trailingPE', 999) 
+            if pe is None: pe = 999
         except:
             pe = 999
             
-        return diagnostico_tec, rsi, pe, hoy['SMA_200']
+        return diagnostico_tec, rsi, pe
 
-    except Exception:
-        return None, None, None, None
+    except Exception as e:
+        # print(f"Error Técnico en {ticker}: {e}")
+        return None, None, None
 
-# 4. MOTOR DE DECISIÓN (EL JUEZ)
+# 4. MOTOR DE DECISIÓN
 # -----------------------------------------------------------------------------
 def CalcularVeredicto(diag_tec, rsi, var_ia, pe):
     puntaje = 0
@@ -174,30 +186,53 @@ def CalcularVeredicto(diag_tec, rsi, var_ia, pe):
     elif puntaje <= -2: return "VENTA", puntaje, razones
     else: return "NEUTRAL/ESPERAR", puntaje, razones
 
-# 5. EJECUCIÓN PRINCIPAL
+# 5. EJECUCIÓN PRINCIPAL OPTIMIZADA
 # -----------------------------------------------------------------------------
-def ScannerSupremo():
-    print(f"INICIANDO PREDICCION  (Híbrido + Redes Neuronales LSTM)")
-    print(f"Analizando {len(PORTAFOLIO)} empresas. Entrenando modelos de IA en tiempo real...\n")
+def Prediccion():
+    print(f"INICIANDO SCANNER OPTIMIZADO")
+    print("-" * 80)
     
+    # PASO 1: DESCARGA MASIVA (La optimización clave)
+    print(f"1. Descargando historial de 4 años para {len(PORTAFOLIO)} empresas...")
+    try:
+        # Descargamos todo junto. group_by='ticker' facilita el acceso posterior.
+        datos_globales = yf.download(PORTAFOLIO, period='4y', interval='1d', group_by='ticker', progress=True, auto_adjust=True)
+    except Exception as e:
+        print(f"Error crítico en descarga: {e}")
+        return
+
     informe = []
+    print(f"\n2. Entrenando Modelos de IA y Analizando Datos...\n")
 
     for ticker in PORTAFOLIO:
         nombre = NOMBRES.get(ticker, ticker)
-        print(f"Procesando {nombre}...", end="\r")
+        print(f" Procesando {nombre}...", end="\r")
         
-        # 1. Ejecutar IA
-        var_ia, precio = EntrenarYPredecir(ticker)
+        # Extraer el DataFrame específico de la empresa
+        try:
+            df_ticker = datos_globales[ticker].copy()
+            # Limpieza básica
+            df_ticker.dropna(inplace=True)
+            
+            if df_ticker.empty:
+                print(f"Sin datos para {ticker}")
+                continue
+        except KeyError:
+            print(f"Error accediendo a datos de {ticker}")
+            continue
+        
+        # 1. Ejecutar IA (Usando el df ya descargado)
+        var_ia, precio = EntrenarPredecir(df_ticker, ticker)
         if var_ia is None: continue
 
-        # 2. Ejecutar Técnicos
-        diag_tec, rsi, pe, sma200 = AnalisisTecnicoYFundamental(ticker)
+        # 2. Ejecutar Técnicos (Usando el MISMO df)
+        diag_tec, rsi, pe = AnalisisTecnicoYFundamental_Optimizado(df_ticker, ticker)
         if diag_tec is None: continue
 
         # 3. Calcular Veredicto
         decision, score, razones = CalcularVeredicto(diag_tec, rsi, var_ia, pe)
 
-        # Formato visual IA
+        # Formato visual
         flecha_ia = "📈" if var_ia > 0 else "📉"
         
         informe.append({
@@ -208,19 +243,20 @@ def ScannerSupremo():
             'Diagnóstico Téc.': diag_tec,
             'P/E': round(pe, 1) if pe != 999 else "N/A",
             'RECOMENDACIÓN': decision,
-            'Score': score # Oculto, solo para ordenar
+            'Score': score # Oculto
         })
 
     # Mostrar Tabla Final
-    df = pd.DataFrame(informe)
-    
-    # Ordenar: Primero las mejores compras (Score más alto), luego las ventas fuertes (Score más bajo)
-    df = df.sort_values(by='Score', ascending=False).drop(columns=['Score'])
+    if len(informe) > 0:
+        df = pd.DataFrame(informe)
+        df = df.sort_values(by='Score', ascending=False).drop(columns=['Score'])
 
-    print("\n" + "="*130)
-    print(f"INFORME FINAL")
-    print("="*130)
-    print(df.to_string(index=False))
+        print("\n" + "="*130)
+        print(f"INFORME FINAL DE ESTRATEGIA")
+        print("="*130)
+        print(df.to_string(index=False))
+    else:
+        print("\nNo se generaron resultados. Revisa tu conexión a internet.")
 
 if __name__ == "__main__":
-    ScannerSupremo()
+    Prediccion()
