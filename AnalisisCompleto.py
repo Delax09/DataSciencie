@@ -7,19 +7,38 @@ from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import Dense, LSTM, Dropout, Input
 from tensorflow.keras.optimizers import Adam
 from tensorflow.keras.callbacks import EarlyStopping
+from concurrent.futures import ProcessPoolExecutor # Importado para paralelismo
 import os
 import warnings
+import logging
+import gc 
 
+"""
+# Lista de empresas expandida
+PORTAFOLIO = [
+    'MSFT', 'AAPL', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'META', 'NFLX', 'INTC', 'AMD', 'KO',
+    'JPM', 'V', 'JNJ', 'UNH', 'PG', 'WMT', 'XOM', 'CAT', 'DIS', 'SPY'
+]
+
+NOMBRES = {
+    'MSFT': 'Microsoft', 'AAPL': 'Apple', 'TSLA': 'Tesla', 'AMZN': 'Amazon',
+    'GOOGL': 'Google', 'NVDA': 'NVIDIA', 'META': 'Meta', 'NFLX': 'Netflix',
+    'INTC': 'Intel', 'AMD': 'AMD', 'KO': 'Coca-Cola',
+    'JPM': 'JPMorgan', 'V': 'Visa', 'JNJ': 'Johnson & Johnson', 
+    'UNH': 'UnitedHealth', 'PG': 'Procter & Gamble', 'WMT': 'Walmart', 
+    'XOM': 'Exxon Mobil', 'CAT': 'Caterpillar', 'DIS': 'Disney', 'SPY': 'S&P 500 ETF (SPY)'
+}
+"""
 # 1. CONFIGURACIÓN GLOBAL
 # -----------------------------------------------------------------------------
-os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' 
-warnings.filterwarnings("ignore") 
+os.environ['TF_CPP_MIN_LOG_LEVEL'] = '3' 
+logging.getLogger('tensorflow').setLevel(logging.ERROR)
+warnings.filterwarnings("ignore")
+
 pd.set_option('display.max_columns', None)
 pd.set_option('display.width', 1000)
-pd.set_option('display.colheader_justify', 'center')
 
-DIAS_MEMORIA_IA = 60  
-
+DIAS_MEMORIA_IA = 60 
 PORTAFOLIO = ['MSFT', 'AAPL', 'TSLA', 'AMZN', 'GOOGL', 'NVDA', 'META', 'NFLX', 'INTC', 'AMD', 'KO']
 NOMBRES = {
     'MSFT': 'Microsoft', 
@@ -35,12 +54,10 @@ NOMBRES = {
     'KO': 'Coca-Cola'
 }
 
-# 2. MÓDULO DE INTELIGENCIA ARTIFICIAL (LSTM)
+# 2. MOTOR IA Y ANÁLISIS (FUNCIONES ATÓMICAS)
 # -----------------------------------------------------------------------------
 def EntrenarPredecir(df_hist, ticker):
-    """
-    Entrena la LSTM de forma MULTIVARIANTE (Close, Volume, RSI).
-    """
+    """Entrenamiento Multivariante optimizado"""
     try:
         df = df_hist.copy()
         
@@ -118,14 +135,11 @@ def EntrenarPredecir(df_hist, ticker):
     except Exception as e:
         return None, None
 
-# 3. MÓDULO TÉCNICO Y FUNDAMENTAL
-# -----------------------------------------------------------------------------
 def AnalisisTecnicoYFundamental_Optimizado(df_hist, ticker):
+    """Cálculos técnicos estándar"""
     try:
         if len(df_hist) < 200: return None
         df = df_hist.copy()
-
-        # Indicadores Técnicos
         df['SMA_200'] = df['Close'].rolling(window=200).mean()
         delta = df['Close'].diff()
         ganancia = (delta.where(delta > 0, 0)).ewm(com=13, adjust=False).mean()
@@ -166,91 +180,75 @@ def AnalisisTecnicoYFundamental_Optimizado(df_hist, ticker):
     except Exception as e:
         return None, None, None
 
-# 4. MOTOR DE DECISIÓN
-# -----------------------------------------------------------------------------
 def CalcularVeredicto(diag_tec, rsi, var_ia, pe):
+    """Motor de decisión"""
     puntaje = 0
-    razones = []
-
-    # A. Evaluación Técnica
-    if "COMPRA MAESTRA" in diag_tec:
-        puntaje += 3
-        razones.append("Técnico Perfecto")
-    elif "COMPRA" in diag_tec:
-        puntaje += 2
-        razones.append("Señal Técnica Alcista")
-    elif "REBOTE" in diag_tec:
-        puntaje += 1
-        razones.append("Posible Rebote")
-    elif "SOBRECOMPRA" in diag_tec:
-        puntaje -= 3
-        razones.append("Técnicamente Cara")
-
-    # B. Evaluación IA
-    if var_ia > 1.5:
-        puntaje += 2
-        razones.append(f"IA muy alcista (+{var_ia:.1f}%)")
-    elif var_ia > 0.3:
-        puntaje += 1
-    elif var_ia < -1.5:
-        puntaje -= 2
-        razones.append(f"IA muy bajista ({var_ia:.1f}%)")
-
-    # C. Evaluación Fundamental (Seguridad)
-    if pe > 100 and pe != 999:
-        puntaje -= 2
-        razones.append(f"P/E Peligroso ({pe:.0f})")
+    if "COMPRA" in diag_tec: puntaje += 2
+    elif "VENTA" in diag_tec: puntaje -= 2
+    if var_ia > 1.5: puntaje += 2
+    elif var_ia < -1.5: puntaje -= 2
     
-    # Resultado Final
-    if puntaje >= 4: return "COMPRA FUERTE", puntaje, razones
-    elif puntaje >= 2: return "COMPRA", puntaje, razones
-    elif puntaje <= -2: return "VENTA", puntaje, razones
-    else: return "NEUTRAL/ESPERAR", puntaje, razones
+    if puntaje >= 3: return "COMPRA FUERTE", puntaje
+    elif puntaje >= 1: return "COMPRA", puntaje
+    elif puntaje <= -2: return "VENTA", puntaje
+    return "NEUTRAL", puntaje
 
-# 5. EJECUCIÓN PRINCIPAL
+# FUNCIÓN DE TAREA (Para el bucle o paralelismo)
+def EjecutarAnalisisIndividual(ticker, df_ticker):
+    """Procesa una sola empresa y devuelve el resultado"""
+    var_ia, precio = EntrenarPredecir(df_ticker, ticker)
+    if var_ia is None: return None
+    diag_tec, rsi, pe = AnalisisTecnicoYFundamental_Optimizado(df_ticker, ticker)
+    if diag_tec is None: return None
+    decision, score = CalcularVeredicto(diag_tec, rsi, var_ia, pe)
+    return {
+        'Ticker': NOMBRES.get(ticker, ticker), 
+        'Precio': round(precio, 2),
+        'RSI': round(rsi, 1), 
+        'IA Predicción': f"{var_ia:+.2f}%",
+        'Técnico': diag_tec, 
+        'RECOMENDACIÓN': decision, 
+        'Score': score
+    }
 
+# 3. EJECUCIÓN PRINCIPAL
+# -----------------------------------------------------------------------------
 def Prediccion():
-    print(f"INICIANDO PREDICCION DE MERCADO")
+    print("INICIANDO SCANNER")
     print("-" * 80)
+    print("1. Descargando datos masivos...")
     try:
-        datos_globales = yf.download(PORTAFOLIO, period='4y', interval='1d', group_by='ticker', progress=True, auto_adjust=True)
-    except Exception as e:
-        print(f"Error crítico en descarga: {e}")
-        return
+        datos = yf.download(PORTAFOLIO, period='4y', interval='1d', group_by='ticker', progress=False, auto_adjust=True)
+    except: return
+
     informe = []
-    print(f"\n2. Entrenando Modelos de IA y Analizando Datos...\n")
+    
+    # --- OPCIÓN A: EJECUCIÓN SECUENCIAL (Lenta pero segura) ---
+    print("2. Procesando empresas secuencialmente...")
     for ticker in PORTAFOLIO:
-        nombre = NOMBRES.get(ticker, ticker)
-        print(f" Procesando {nombre}...", end="\r")
-        try:
-            df_ticker = datos_globales[ticker].copy()
-            df_ticker.dropna(inplace=True)
-            if df_ticker.empty: continue
-        except KeyError: continue
-        var_ia, precio = EntrenarPredecir(df_ticker, ticker)
-        if var_ia is None: continue
-        diag_tec, rsi, pe = AnalisisTecnicoYFundamental_Optimizado(df_ticker, ticker)
-        if diag_tec is None: continue
-        decision, score, razones = CalcularVeredicto(diag_tec, rsi, var_ia, pe)
-        flecha_ia = "📈" if var_ia > 0 else "📉"
-        informe.append({
-            'Ticker': nombre,
-            'Precio': precio,
-            'RSI': round(rsi, 1),
-            'IA Predicción': f"{var_ia:+.2f}% {flecha_ia}",
-            'Diagnóstico Téc.': diag_tec,
-            'P/E': round(pe, 1) if pe != 999 else "N/A",
-            'RECOMENDACIÓN': decision,
-            'Score': score # Oculto
-        })
-    if len(informe) > 0:
-        df = pd.DataFrame(informe)
-        df = df.sort_values(by='Score', ascending=False).drop(columns=['Score'])
-        print("\n" + "="*130)
-        print(f"INFORME FINAL DE ESTRATEGIA")
+        df_t = datos[ticker].dropna()
+        if not df_t.empty:
+            res = EjecutarAnalisisIndividual(ticker, df_t)
+            if res:
+                print(f"Finalizado: {res['Ticker']}")
+                informe.append(res)
+
+    # --- OPCIÓN B: EJECUCIÓN PARALELA (Rápida - DESCOMENTAR PARA USAR) ---
+    # print("2. Procesando empresas en PARALELO...")
+    # with ProcessPoolExecutor(max_workers=2) as executor: # max_workers=2 por tus 8GB de RAM
+    #     tareas = {executor.submit(EjecutarAnalisisIndividual, t, datos[t].dropna()): t for t in PORTAFOLIO}
+    #     for future in tareas:
+    #         res = future.result()
+    #         if res:
+    #             print(f"Finalizado: {res['Ticker']}")
+    #             informe.append(res)
+
+    if informe:
+        df_f = pd.DataFrame(informe).sort_values(by='Score', ascending=False)
+        print("\n" + "="*120)
+        print(" INFORME FINAL DE ESTRATEGIA ")
         print("="*130)
-        print(df.to_string(index=False))
-    else: print("\nNo se generaron resultados.")
+        print(df_f.drop(columns=['Score']).to_string(index=False))
 
 if __name__ == "__main__":
     Prediccion()
